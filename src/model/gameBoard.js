@@ -2,10 +2,17 @@ import {Board} from "./board.js";
 import DIRECTION from '../utils/direction.js';
 
 export class GameBoard {
+    #highestTile;
+
     constructor() {
+        this.#highestTile = 2;
         this.board = new Board(4);
         this.board.placeRandomly(this.generateTile());
         this.board.placeRandomly(this.generateTile());
+    }
+
+    get highestTile() {
+        return this.#highestTile;
     }
 
     generateTile = () => {
@@ -13,62 +20,113 @@ export class GameBoard {
         let rand = Math.round(Math.random() * 100);
         //TODO continue
         // const tileToRange = {};
-        // Object.entries(config.tilesFrequence).map([key, value] => tileToRange[key] = )
+        // Object.entries(config.js.tilesFrequence).map([key, value] => tileToRange[key] = )
         if (rand === 1) return 2;
         return 4;
     }
 
+    // Returns index of first non-zero cell
+    #findFirstNonZeroStartingFromIndex = (sequence, startIndex, compactDirection) => {
+        let toIndex, condition;
+        if (compactDirection === 'start') {
+            toIndex = sequence.length;
+            condition = (i, to) => i < to;
+        } else {
+            toIndex = -1;
+            condition = (i, to) => i > to;
+        }
+        for (let cellIndex = startIndex; condition(cellIndex, toIndex); compactDirection === 'start' ? cellIndex++ : cellIndex--) {
+            let firstNonEmptyCell = cellIndex;
+            while (condition(firstNonEmptyCell, toIndex)) {
+                if (sequence[firstNonEmptyCell] !== 0) {
+                    break;
+                }
+                compactDirection === 'start' ? firstNonEmptyCell++ : firstNonEmptyCell--;
+            }
+            if (firstNonEmptyCell !== toIndex)
+                return firstNonEmptyCell;
+        }
+        return -1;
+    }
+
     // direction = start/end
     #compactSequence = (sequence, direction) => {
-        let isChanged = false;
-        if (direction === 'start') {
-            for (let cellIndex = 0; cellIndex < sequence.length; cellIndex++) {
-                let firstNonEmptyCell = cellIndex;
-                while (firstNonEmptyCell <= sequence.length - 1) {
-                    if (sequence[firstNonEmptyCell] !== 0) {
-                        break;
-                    }
-                    firstNonEmptyCell++;
-                }
-                if (firstNonEmptyCell !== sequence.length) {
-                    isChanged = true;
-                    const toMove = sequence.slice(cellIndex, firstNonEmptyCell - cellIndex);
-                    for (let i = firstNonEmptyCell; i <= sequence.length - 1; i++) {
-                        sequence[i] = 0;
-                    }
-                    for (let i = 0; i < toMove.length - 1; i++) {
-                        sequence[cellIndex + i] = toMove[i];
-                    }
-                }
+        let nonZeroNumbers = [];
+        let nonZeroIndexes = [];
+        sequence.forEach((number, index) => {
+            if (number) {
+                nonZeroNumbers.push(number);
+                nonZeroIndexes.push(index);
             }
+        })
+
+        nonZeroIndexes.forEach((index) => sequence[index] = 0);
+
+        if (direction === 'start' && nonZeroNumbers.length) {
+            nonZeroNumbers.forEach((number, index) => {
+                if (sequence[index] !== number) {
+                    sequence[index] = number
+                }
+            });
+        }
+        if (direction === 'end' && nonZeroNumbers.length) {
+            nonZeroNumbers.reverse().forEach((number, index) => {
+                if (sequence[sequence.length - (1 + index)] !== number) {
+                    sequence[sequence.length - (1 + index)] = number;
+                }
+            });
         }
 
-        return isChanged;
+        // If the last index of the non zero number is in row from the sequence edge - return true for indicate change.
+        if (direction === 'start') {
+            return nonZeroIndexes.length && nonZeroIndexes[nonZeroIndexes.length - 1] !== nonZeroIndexes.length - 1
+        }
+
+        return nonZeroIndexes.length && nonZeroIndexes.reverse()[nonZeroIndexes.length - 1] !== sequence.length - nonZeroIndexes.length
     }
 
     // Sum then move
     #groupSequence = (sequence, direction) => {
         let isChanged = false;
-        if (sequence[0] === sequence [1]) {
-            sequence[0] += sequence[1];
-            sequence[1] = 0;
-            if (sequence[2] === sequence[3]) {
-                sequence[2] += sequence[3];
-                sequence[3] = 0;
-            }
-            isChanged = true;
-        } else if (sequence[1] === sequence[2]) {
-            sequence[1] += sequence[2];
-            sequence[2] = 0;
-            isChanged = true;
-        } else if (sequence[2] === sequence[3]) {
-            sequence[2] += sequence[3];
-            sequence[3] = 0;
-            isChanged = true;
+        const compactDirection = [DIRECTION.RIGHT, DIRECTION.DOWN].includes(direction) ? 'end' : 'start';
+
+        let startIndex, toIndex, condition;
+        if (compactDirection === 'start') {
+            startIndex = 0;
+            toIndex = sequence.length - 1;
+            condition = (i, to) => i < to;
+        } else {
+            startIndex = sequence.length - 1;
+            toIndex = 0;
+            condition = (i, to) => i > to;
         }
 
-        const compactDirection = [DIRECTION.RIGHT, DIRECTION.DOWN].includes(direction) ? 'end' : 'start';
-        return isChanged || this.#compactSequence(compactDirection) ? sequence : null;
+        for (let i = startIndex; condition(i, toIndex); compactDirection === 'start' ? i++ : i--) {
+            let firstNonEmptyIndex, secondNonEmptyIndex;
+            firstNonEmptyIndex = this.#findFirstNonZeroStartingFromIndex(sequence, i, compactDirection);
+            if (compactDirection === 'start' && (firstNonEmptyIndex > -1 && firstNonEmptyIndex !== sequence.length - 1)
+            || (compactDirection === 'end' && (firstNonEmptyIndex < sequence.length && firstNonEmptyIndex !== 0))) {
+                secondNonEmptyIndex = this.#findFirstNonZeroStartingFromIndex(sequence, compactDirection === 'start' ? firstNonEmptyIndex + 1 : firstNonEmptyIndex - 1, compactDirection);
+
+                if (secondNonEmptyIndex !== -1) {
+                    if (sequence[firstNonEmptyIndex] === sequence[secondNonEmptyIndex]) {
+                        isChanged = true;
+                        sequence[firstNonEmptyIndex] += sequence[secondNonEmptyIndex];
+                        sequence[secondNonEmptyIndex] = 0;
+
+                        if (sequence[firstNonEmptyIndex] > this.#highestTile) {
+                            this.#highestTile = sequence[firstNonEmptyIndex];
+                        }
+                        i = secondNonEmptyIndex
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+
+        const isCompactChange = this.#compactSequence(sequence, compactDirection);
+        return (isChanged || isCompactChange) ? sequence : null;
     }
 
     moveAll = (direction) => {
